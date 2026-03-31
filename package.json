@@ -1,0 +1,1 @@
+{"name":"bankers-life-crm","private":true,"dependencies":{"react":"^18","react-dom":"^18"},"scripts":{"dev":"vite","build":"vite build"}}
