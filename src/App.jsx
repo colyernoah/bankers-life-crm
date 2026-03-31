@@ -938,7 +938,7 @@ export default function App() {
                           <td style={{padding:"10px 14px",fontSize:11,color:"#64748b"}}>{fmtDate(r.date)}</td>
                           <td style={{padding:"10px 14px"}}><span style={{background:st.bg,border:`1px solid ${st.color}44`,color:st.color,borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:600}}>{st.label}</span></td>
                           <td style={{padding:"10px 14px"}}>
-                            <div style={{display:"flex",gap:4",flexWrap:"wrap"}}>
+                            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                               {Object.entries(REFERRAL_STATUSES).filter(([k])=>k!==r.status).map(([k,s])=>(
                                 <button key={k} onClick={()=>updateRefStatus(r.id,k)} style={{background:"none",border:`1px solid ${s.color}33`,color:s.color,borderRadius:5,padding:"2px 7px",fontSize:10,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background=s.bg} onMouseLeave={e=>e.currentTarget.style.background="none"}>{s.label}</button>
                               ))}
