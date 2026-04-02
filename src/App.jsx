@@ -28,6 +28,8 @@ function dbToClient(row) {
     phone: row.phone||"",
     email: row.email||"",
     product: row.product||"",
+    products: row.products||[row.product||""],
+    clientStatus: row.client_status||"prospect",
     policyNumber: row.policy_number||"",
     carrier: row.carrier||"Bankers Life",
     premium: Number(row.premium)||0,
@@ -48,7 +50,9 @@ function clientToDb(c) {
     name: c.name,
     phone: c.phone||"",
     email: c.email||"",
-    product: c.product||"",
+    product: c.products?.[0]||c.product||"",
+    products: c.products||[c.product||""],
+    client_status: c.clientStatus||"prospect",
     policy_number: c.policyNumber||"",
     carrier: c.carrier||"Bankers Life",
     premium: Number(c.premium)||0,
@@ -72,6 +76,8 @@ function dbToReferral(row) {
     referredPhone: row.referred_phone||"",
     referredEmail: row.referred_email||"",
     product: row.product||"",
+    products: row.products||[row.product||""],
+    clientStatus: row.client_status||"prospect",
     notes: row.notes||"",
     date: row.date||"",
     status: row.status||"new",
@@ -147,7 +153,16 @@ const STAGE_MESSAGES = {
     }],
   },
 };
-const PRODUCTS = ["Medicare Supplement","Medicare Advantage","Life Insurance","Annuity","Long-Term Care","Final Expense","Other"];
+const PRODUCTS = ["Medicare Supplement","Medicare Advantage","Life Insurance","Annuity","Long-Term Care","Other"];
+const CARRIERS = ["Bankers Life","Devoted","Humana","Aetna","Wellcare","Healthspring","United Healthcare","Blue Cross Blue Shield","Other"];
+const CLIENT_STATUS = [
+  { id:"prospect",  label:"Prospect" },
+  { id:"client",    label:"Client" },
+  { id:"referral",  label:"Referral" },
+  { id:"orphan",    label:"Orphan" },
+  { id:"adoption",  label:"Adoption" },
+  { id:"deceased",  label:"Deceased" },
+];
 const PRODUCT_FILTERS = [
   { id:"Medicare Supplement", label:"Med Supp" },
   { id:"Medicare Advantage",  label:"Med Adv" },
@@ -235,7 +250,7 @@ const ffComplete = ff => {
 };
 
 const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicareEffectiveDate:"",medications:"",income:"",beneficiary:""};
-const emptyClient = {name:"",phone:"",email:"",product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",premium:"",stage:"new_lead",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
+const emptyClient = {name:"",phone:"",email:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
 const emptyEntry = {type:"call",text:"",followUpUpdate:""};
 
 // Client data is loaded from Supabase
@@ -437,7 +452,7 @@ export default function App() {
   const filteredClients = clientBook.filter(c=>{
     const mq=!search||c.name.toLowerCase().includes(search.toLowerCase())||c.phone.includes(search);
     const mr=ratingFilter==="all"||c.rating===ratingFilter||(ratingFilter==="unrated"&&!c.rating);
-    const mp=productFilters.length===0||productFilters.some(pf=>[...(c.allPolicies||[]).map(p=>p.product),c.product].includes(pf));
+    const mp=productFilters.length===0||productFilters.some(pf=>[...(c.allPolicies||[]).map(p=>p.product),...(c.products||[c.product])].includes(pf));
     return mq&&mr&&mp;
   });
 
@@ -853,7 +868,7 @@ export default function App() {
             <div className="card" style={{padding:0,overflow:"hidden"}}>
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead><tr style={{background:"#f8fafc"}}>
-                  {["Client","Phone","Product","Rating","Fact Finder","Status"].map(h=>(
+                  {["Client","Phone","Products","Status","Rating","Fact Finder"].map(h=>(
                     <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>
                   ))}
                 </tr></thead>
@@ -1326,7 +1341,7 @@ export default function App() {
                 <div style={{marginBottom:16}}>
                   <SHdr icon="" title="Policy"/>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    {[["Product",sel.product],["Carrier",sel.carrier||"—"],["Policy #",sel.policyNumber||"—"]].map(([l,v])=>(
+                    {[["Products",(sel.products||[sel.product]).join(", ")||"—"],["Carrier",sel.carrier||"—"],["Policy #",sel.policyNumber||"—"],["Status",CLIENT_STATUS.find(s=>s.id===(sel.clientStatus||"client"))?.label||"Client"]].map(([l,v])=>(
                       <div key={l}><div style={{fontSize:10,color:"#64748b",marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{l}</div><div style={{fontSize:13,color:"#0f172a"}}>{v}</div></div>
                     ))}
                   </div>
@@ -1666,9 +1681,21 @@ export default function App() {
                 <div style={{gridColumn:"1 / -1"}}><label>Full Name *</label><input className="inp" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Client name"/></div>
                 <div><label>Phone</label><input className="inp" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))}/></div>
                 <div><label>Email</label><input className="inp" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/></div>
-                <div><label>Product</label><select className="inp" value={form.product} onChange={e=>setForm(p=>({...p,product:e.target.value}))}>{PRODUCTS.map(p=><option key={p}>{p}</option>)}</select></div>
-                <div><label>Stage</label><select className="inp" value={form.stage} onChange={e=>setForm(p=>({...p,stage:e.target.value}))}>{Object.entries(STAGE_MAP).map(([id,s])=><option key={id} value={id}>{s.label}</option>)}</select></div>
-                <div><label>Carrier</label><input className="inp" value={form.carrier} onChange={e=>setForm(p=>({...p,carrier:e.target.value}))}/></div>
+                <div style={{gridColumn:"1 / -1"}}>
+                  <label>Products (select all that apply)</label>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:5}}>
+                    {PRODUCTS.map(p=>{
+                      const selected=(form.products||[form.product]).includes(p);
+                      return <button key={p} type="button" onClick={()=>setForm(prev=>{
+                        const prods=prev.products||[prev.product];
+                        const next=selected?prods.filter(x=>x!==p):[...prods,p];
+                        return {...prev,products:next.length?next:[p],product:next[0]||p};
+                      })} style={{padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${selected?"#1d4ed8":"#e2e8f0"}`,background:selected?"#eff6ff":"#fff",color:selected?"#1d4ed8":"#64748b",transition:"all .15s"}}>{p}</button>;
+                    })}
+                  </div>
+                </div>
+                <div><label>Current Status</label><select className="inp" value={form.clientStatus||"prospect"} onChange={e=>setForm(p=>({...p,clientStatus:e.target.value}))}>{CLIENT_STATUS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
+                <div><label>Carrier</label><select className="inp" value={form.carrier} onChange={e=>setForm(p=>({...p,carrier:e.target.value}))}>{CARRIERS.map(c=><option key={c}>{c}</option>)}</select></div>
                 <div><label>Policy #</label><input className="inp" value={form.policyNumber} onChange={e=>setForm(p=>({...p,policyNumber:e.target.value}))}/></div>
                 <div><label>Follow-Up</label><input className="inp" type="date" value={form.followUp} onChange={e=>setForm(p=>({...p,followUp:e.target.value}))}/></div>
                 <div style={{gridColumn:"1 / -1"}}><label>Notes</label><textarea className="inp" value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={2} style={{resize:"vertical"}}/></div>
@@ -1818,27 +1845,39 @@ export default function App() {
                       const reader = new FileReader();
                       reader.onload = ev => {
                         const text = ev.target.result;
-                        const lines = text.split('\n').filter(l=>l.trim());
-                        if(lines.length<2) return;
-                        const headers = lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));
-                        const rows = lines.slice(1).map(line=>{
-                          const vals = line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
-                          const obj = {};
-                          headers.forEach((h,i)=>{ obj[h]=vals[i]||""; });
+                        // Parse CSV properly handling quoted fields
+                        const parseCSV = (str) => {
+                          const rows = []; let row = []; let field = ""; let inQ = false;
+                          for(let i=0;i<str.length;i++){
+                            const c=str[i],n=str[i+1];
+                            if(c==='"'&&inQ&&n==='"'){field+='"';i++;continue;}
+                            if(c==='"'){inQ=!inQ;continue;}
+                            if(c===','&&!inQ){row.push(field.trim());field="";continue;}
+                            if((c==='\n'||c==='\r')&&!inQ){if(c==='\r'&&n==='\n')i++;if(row.length>0||field){row.push(field.trim());rows.push(row);row=[];field="";}continue;}
+                            field+=c;
+                          }
+                          if(field||row.length)rows.push([...row,field.trim()]);
+                          return rows;
+                        };
+                        const allRows = parseCSV(text).filter(r=>r.some(c=>c));
+                        if(allRows.length<2){alert("CSV must have a header row and at least one data row.");return;}
+                        const headers = allRows[0];
+                        const rows = allRows.slice(1).map(vals=>{
+                          const obj={};
+                          headers.forEach((h,i)=>{obj[h]=vals[i]||"";});
                           return obj;
                         }).filter(r=>Object.values(r).some(v=>v));
                         setImportHeaders(headers);
                         setImportData(rows);
-                        // Auto-map common column names
                         const autoMap = {name:"",phone:"",email:"",product:"",policyNumber:"",carrier:"",stage:"",notes:""};
                         headers.forEach(h=>{
-                          const hl = h.toLowerCase();
-                          if(hl.includes("name")&&!hl.includes("carrier")&&!hl.includes("policy")) autoMap.name=h;
-                          else if(hl.includes("phone")||hl.includes("mobile")) autoMap.phone=h;
+                          const hl=h.toLowerCase().trim();
+                          if((hl==="name"||(hl.includes("name")&&!hl.includes("carrier")&&!hl.includes("policy")&&!hl.includes("company")))) autoMap.name=h;
+                          else if(hl.includes("phone")||hl.includes("mobile")||hl.includes("cell")) autoMap.phone=h;
                           else if(hl.includes("email")) autoMap.email=h;
                           else if(hl.includes("product")) autoMap.product=h;
-                          else if(hl.includes("policy")) autoMap.policyNumber=h;
-                          else if(hl.includes("carrier")) autoMap.carrier=h;
+                          else if(hl.includes("policy")&&!hl.includes("carrier")) autoMap.policyNumber=h;
+                          else if(hl.includes("carrier")||hl.includes("company")||hl.includes("insurer")) autoMap.carrier=h;
                           else if(hl.includes("stage")||hl.includes("status")) autoMap.stage=h;
                           else if(hl.includes("note")) autoMap.notes=h;
                         });
@@ -1912,18 +1951,25 @@ export default function App() {
 
               {/* Step 3: Confirm & import */}
               {importStep==="confirm"&&(()=>{
-                const mapped = importData.map((row,i)=>({
-                  name: importMapping.name?row[importMapping.name]?.trim():"",
-                  phone: importMapping.phone?row[importMapping.phone]?.trim():"",
-                  email: importMapping.email?row[importMapping.email]?.trim():"",
-                  product: importMapping.product?row[importMapping.product]?.trim()||PRODUCTS[0]:PRODUCTS[0],
-                  policyNumber: importMapping.policyNumber?row[importMapping.policyNumber]?.trim():"",
-                  carrier: importMapping.carrier?row[importMapping.carrier]?.trim()||"Bankers Life":"Bankers Life",
-                  premium: 0,
-                  stage: importMapping.stage?row[importMapping.stage]?.trim().toLowerCase().replace(/\s+/g,"_")||"delivered":"delivered",
-                  notes: importMapping.notes?row[importMapping.notes]?.trim():"",
-                  _row: i,
-                })).filter(r=>r.name);
+                const mapped = importData.map((row,i)=>{
+                  const productVal = importMapping.product?row[importMapping.product]?.trim():"";
+                  const matchedProduct = PRODUCTS.find(p=>p.toLowerCase()===productVal.toLowerCase())||productVal||PRODUCTS[0];
+                  const carrierVal = importMapping.carrier?row[importMapping.carrier]?.trim():"";
+                  return {
+                    name: importMapping.name?row[importMapping.name]?.trim():"",
+                    phone: importMapping.phone?row[importMapping.phone]?.trim():"",
+                    email: importMapping.email?row[importMapping.email]?.trim():"",
+                    products: [matchedProduct],
+                    product: matchedProduct,
+                    policyNumber: importMapping.policyNumber?row[importMapping.policyNumber]?.trim():"",
+                    carrier: carrierVal||"Bankers Life",
+                    clientStatus: "client",
+                    premium: 0,
+                    stage: "delivered",
+                    notes: importMapping.notes?row[importMapping.notes]?.trim():"",
+                    _row: i,
+                  };
+                }).filter(r=>r.name);
                 const invalid = mapped.filter(r=>!r.name);
                 return (
                   <div>
@@ -1940,7 +1986,7 @@ export default function App() {
                     <div style={{maxHeight:240,overflow:"auto",marginBottom:14}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                         <thead><tr style={{background:"#f8fafc"}}>
-                          {["Name","Phone","Product","Stage"].map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>{h}</th>)}
+                          {["Name","Phone","Products","Status"].map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase"}}>{h}</th>)}
                         </tr></thead>
                         <tbody>
                           {mapped.slice(0,50).map((r,i)=>(
@@ -1965,7 +2011,7 @@ export default function App() {
                         const errors = [];
                         for(const r of mapped) {
                           try {
-                            const row = clientToDb({...emptyClient,...r,activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}});
+                            const row = clientToDb({...emptyClient,...r,products:r.products||[r.product],clientStatus:r.clientStatus||"client",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}});
                             const rows = await sb("clients",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify(row)});
                             if(rows&&rows[0]) { setClients(p=>[...p,dbToClient(rows[0])]); imported++; }
                           } catch(e) { errors.push(r.name); }
