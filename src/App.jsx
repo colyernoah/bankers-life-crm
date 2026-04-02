@@ -35,6 +35,9 @@ function dbToClient(row) {
     premium: Number(row.premium)||0,
     stage: row.stage||"new_lead",
     followUp: row.follow_up||"",
+    dob: row.follow_up||"",
+    products: row.products||[row.product||""],
+    clientStatus: row.client_status||"prospect",
     notes: row.notes||"",
     rating: row.rating||null,
     allPolicies: row.all_policies||[],
@@ -50,14 +53,14 @@ function clientToDb(c) {
     name: c.name,
     phone: c.phone||"",
     email: c.email||"",
-    product: c.products?.[0]||c.product||"",
+    product: (c.products&&c.products[0])||c.product||"",
     products: c.products||[c.product||""],
     client_status: c.clientStatus||"prospect",
     policy_number: c.policyNumber||"",
     carrier: c.carrier||"Bankers Life",
     premium: Number(c.premium)||0,
     stage: c.stage||"new_lead",
-    follow_up: c.followUp||null,
+    follow_up: c.dob||c.followUp||null,
     notes: c.notes||"",
     rating: c.rating||null,
     all_policies: c.allPolicies||[],
@@ -250,7 +253,7 @@ const ffComplete = ff => {
 };
 
 const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicareEffectiveDate:"",medications:"",income:"",beneficiary:""};
-const emptyClient = {name:"",phone:"",email:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
+const emptyClient = {name:"",phone:"",email:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",dob:"",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
 const emptyEntry = {type:"call",text:"",followUpUpdate:""};
 
 // Client data is loaded from Supabase
@@ -393,7 +396,7 @@ export default function App() {
   const [importData, setImportData]   = useState([]);
   const [importStep, setImportStep]   = useState("upload"); // upload | map | confirm | done
   const [importHeaders, setImportHeaders] = useState([]);
-  const [importMapping, setImportMapping] = useState({name:"",phone:"",email:"",product:"",policyNumber:"",carrier:"",stage:"",notes:""});
+  const [importMapping, setImportMapping] = useState({name:"",phone:"",email:"",product:"",policyNumber:"",carrier:"",notes:""});
   const [importErrors, setImportErrors]   = useState([]);
   const [importing, setImporting]         = useState(false);
   const pipeRef = useRef(null);
@@ -1341,7 +1344,7 @@ export default function App() {
                 <div style={{marginBottom:16}}>
                   <SHdr icon="" title="Policy"/>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    {[["Products",(sel.products||[sel.product]).join(", ")||"—"],["Carrier",sel.carrier||"—"],["Policy #",sel.policyNumber||"—"],["Status",CLIENT_STATUS.find(s=>s.id===(sel.clientStatus||"client"))?.label||"Client"]].map(([l,v])=>(
+                    {[["Products",(sel.products||[sel.product]).filter(Boolean).join(", ")||"—"],["DOB",sel.dob?`${fmtDate(sel.dob)} (Age ${calcAge(sel.dob)})`:"—"],["Carrier",sel.carrier||"—"],["Policy #",sel.policyNumber||"—"],["Status",CLIENT_STATUS.find(s=>s.id===(sel.clientStatus||"client"))?.label||"Client"]].map(([l,v])=>(
                       <div key={l}><div style={{fontSize:10,color:"#64748b",marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{l}</div><div style={{fontSize:13,color:"#0f172a"}}>{v}</div></div>
                     ))}
                   </div>
@@ -1697,7 +1700,11 @@ export default function App() {
                 <div><label>Current Status</label><select className="inp" value={form.clientStatus||"prospect"} onChange={e=>setForm(p=>({...p,clientStatus:e.target.value}))}>{CLIENT_STATUS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
                 <div><label>Carrier</label><select className="inp" value={form.carrier} onChange={e=>setForm(p=>({...p,carrier:e.target.value}))}>{CARRIERS.map(c=><option key={c}>{c}</option>)}</select></div>
                 <div><label>Policy #</label><input className="inp" value={form.policyNumber} onChange={e=>setForm(p=>({...p,policyNumber:e.target.value}))}/></div>
-                <div><label>Follow-Up</label><input className="inp" type="date" value={form.followUp} onChange={e=>setForm(p=>({...p,followUp:e.target.value}))}/></div>
+                <div>
+                  <label>Date of Birth</label>
+                  <input className="inp" type="date" value={form.dob||""} onChange={e=>setForm(p=>({...p,dob:e.target.value,followUp:e.target.value}))}/>
+                  {form.dob&&<div style={{fontSize:11,color:"#60a5fa",marginTop:3,fontWeight:600}}>Age: {calcAge(form.dob)} years old</div>}
+                </div>
                 <div style={{gridColumn:"1 / -1"}}><label>Notes</label><textarea className="inp" value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={2} style={{resize:"vertical"}}/></div>
               </div>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><button className="bg" onClick={()=>setShowForm(false)}>Cancel</button><button className="bp" onClick={saveClient}>{editId?"Save":"Add Client"}</button></div>
@@ -1911,7 +1918,6 @@ export default function App() {
                       {field:"product",label:"Product"},
                       {field:"policyNumber",label:"Policy Number"},
                       {field:"carrier",label:"Carrier"},
-                      {field:"stage",label:"Stage"},
                       {field:"notes",label:"Notes"},
                     ].map(({field,label})=>(
                       <div key={field}>
@@ -1967,6 +1973,8 @@ export default function App() {
                     premium: 0,
                     stage: "delivered",
                     notes: importMapping.notes?row[importMapping.notes]?.trim():"",
+                    dob: "",
+                    followUp: "",
                     _row: i,
                   };
                 }).filter(r=>r.name);
@@ -2011,7 +2019,7 @@ export default function App() {
                         const errors = [];
                         for(const r of mapped) {
                           try {
-                            const row = clientToDb({...emptyClient,...r,products:r.products||[r.product],clientStatus:r.clientStatus||"client",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}});
+                            const row = clientToDb({...emptyClient,...r,products:r.products&&r.products.length?r.products:[r.product||PRODUCTS[0]],product:r.products?.[0]||r.product||PRODUCTS[0],clientStatus:r.clientStatus||"client",dob:"",followUp:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}});
                             const rows = await sb("clients",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify(row)});
                             if(rows&&rows[0]) { setClients(p=>[...p,dbToClient(rows[0])]); imported++; }
                           } catch(e) { errors.push(r.name); }
