@@ -5,15 +5,16 @@ const SUPABASE_URL = "https://oozgemenwmfzvchpqtme.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vemdlbWVud21menZjaHBxdG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MjI0NDcsImV4cCI6MjA5MDQ5ODQ0N30.-vYetdVfOrhnqI88CdA_hkA6UA2QGpTjmrAV0FhJUY8";
 
 async function sb(path, options={}) {
+  const {headers: optHeaders, ...restOptions} = options;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...restOptions,
     headers: {
       "apikey": SUPABASE_KEY,
       "Authorization": `Bearer ${SUPABASE_KEY}`,
       "Content-Type": "application/json",
       "Prefer": options.prefer || "",
-      ...options.headers,
+      ...optHeaders,
     },
-    ...options,
   });
   if(!res.ok) { const e = await res.text(); throw new Error(e); }
   const text = await res.text();
