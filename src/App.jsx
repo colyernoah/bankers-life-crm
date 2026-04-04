@@ -36,8 +36,6 @@ function dbToClient(row) {
     stage: row.stage||"new_lead",
     followUp: row.follow_up||"",
     dob: row.follow_up||"",
-    products: row.products||[row.product||""],
-    clientStatus: row.client_status||"prospect",
     notes: row.notes||"",
     rating: row.rating||null,
     allPolicies: row.all_policies||[],
@@ -399,6 +397,7 @@ export default function App() {
   const [importMapping, setImportMapping] = useState({name:"",phone:"",email:"",product:"",policyNumber:"",carrier:"",notes:""});
   const [importErrors, setImportErrors]   = useState([]);
   const [importing, setImporting]         = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const pipeRef = useRef(null);
 
   // ─── Load data from Supabase on mount ───────────────────────
@@ -827,7 +826,7 @@ export default function App() {
                       <div style={{fontSize:12,fontWeight:700,color:s.color,fontFamily:"'DM Mono',monospace"}}>{cnt}</div>
                     </div>
                   ); })}
-                  {annualReview.length>0&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderTop:"1px solid #1e2433",marginTop:6,paddingTop:10}}><div style={{width:8,height:8,borderRadius:"50%",background:"#f472b6",flexShrink:0}}/><div style={{flex:1,fontSize:12,color:"#64748b"}}>Annual Review</div><div style={{fontSize:12,fontWeight:700,color:"#f472b6",fontFamily:"'DM Mono',monospace"}}>{annualReview.length}</div></div>}
+                  {annualReview.length>0&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderTop:"1px solid #e2e8f0",marginTop:6,paddingTop:10}}><div style={{width:8,height:8,borderRadius:"50%",background:"#f472b6",flexShrink:0}}/><div style={{flex:1,fontSize:12,color:"#64748b"}}>Annual Review</div><div style={{fontSize:12,fontWeight:700,color:"#f472b6",fontFamily:"'DM Mono',monospace"}}>{annualReview.length}</div></div>}
                 </div>
 
                 {/* Upcoming milestones */}
@@ -881,7 +880,7 @@ export default function App() {
                     const cAlerts=getClientAlerts(c);
                     const allProds=[...new Set((c.allPolicies||[]).map(p=>p.product).concat([c.product]))];
                     return (
-                      <tr key={c.id} onClick={()=>openClient(c)} style={{borderTop:"1px solid #1e2433",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <tr key={c.id} onClick={()=>openClient(c)} style={{borderTop:"1px solid #e2e8f0",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                         <td style={{padding:"10px 14px"}}>
                           <div style={{fontWeight:600,fontSize:13,color:"#0f172a",display:"flex",alignItems:"center",gap:6}}>
                             {c.name}
@@ -962,7 +961,7 @@ export default function App() {
                         </div>
                         <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
                           <button style={{background:"#34d39922",border:"1px solid #34d39955",color:"#34d399",borderRadius:7,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}} onClick={()=>markContacted(alert.clientId,alert.key,`Milestone contact: ${alert.personName} approaching age ${alert.milestone.label} — ${alert.milestone.desc}`)}>✓ Contacted</button>
-                          <button style={{background:"none",border:"1px solid #2d3748",color:"#64748b",borderRadius:7,padding:"5px 10px",fontSize:11,cursor:"pointer"}} onClick={()=>dismissAlert(alert.clientId,alert.key)}>Dismiss</button>
+                          <button style={{background:"none",border:"1px solid #cbd5e1",color:"#64748b",borderRadius:7,padding:"5px 10px",fontSize:11,cursor:"pointer"}} onClick={()=>dismissAlert(alert.clientId,alert.key)}>Dismiss</button>
                         </div>
                       </div>
                     );
@@ -999,11 +998,11 @@ export default function App() {
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
                       {cells.map((day,i)=>{
-                        if(!day) return <div key={`e${i}`} style={{minHeight:80,borderTop:"1px solid #1e2433",borderRight:"1px solid #1e2433",background:"#ffffff"}}/>;
+                        if(!day) return <div key={`e${i}`} style={{minHeight:80,borderTop:"1px solid #e2e8f0",borderRight:"1px solid #e2e8f0",background:"#ffffff"}}/>;
                         const mEvs=monthEvents[day]||[], fEvs=followUpEvents[day]||[];
                         const isT=isToday(year,month,day), isPast=today.getFullYear()===year&&today.getMonth()===month&&day<today.getDate();
                         return (
-                          <div key={day} style={{minHeight:80,borderTop:"1px solid #1e2433",borderRight:"1px solid #1e2433",padding:"5px 6px",background:isT?"#e8edf5":isPast?"#ffffff":"transparent"}}>
+                          <div key={day} style={{minHeight:80,borderTop:"1px solid #e2e8f0",borderRight:"1px solid #e2e8f0",padding:"5px 6px",background:isT?"#e8edf5":isPast?"#ffffff":"transparent"}}>
                             <div style={{fontSize:12,fontWeight:isT?700:400,color:isT?"#60a5fa":isPast?"#64748b":"#64748b",marginBottom:3}}>
                               {isT?<span style={{width:18,height:18,borderRadius:"50%",background:"#3b82f6",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:700}}>{day}</span>:day}
                             </div>
@@ -1058,7 +1057,7 @@ export default function App() {
                       const fc=clients.find(c=>c.id===r.fromClientId);
                       const st=REFERRAL_STATUSES[r.status]||REFERRAL_STATUSES.new;
                       return (
-                        <tr key={r.id} style={{borderTop:"1px solid #1e2433"}}>
+                        <tr key={r.id} style={{borderTop:"1px solid #e2e8f0"}}>
                           <td style={{padding:"10px 14px"}}>{fc?<div><div style={{fontSize:12,fontWeight:600,color:"#0f172a",cursor:"pointer"}} onClick={()=>openClient(fc)}>{fc.name}</div><RatingBadge rating={fc.rating}/></div>:<span style={{fontSize:12,color:"#64748b"}}>—</span>}</td>
                           <td style={{padding:"10px 14px"}}><div style={{fontWeight:600,fontSize:12,color:"#0f172a"}}>{r.referredName}</div>{r.referredPhone&&<div style={{fontSize:11,color:"#64748b"}}>{r.referredPhone}</div>}{r.notes&&<div style={{fontSize:10,color:"#64748b",marginTop:1,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.notes}</div>}</td>
                           <td style={{padding:"10px 14px",fontSize:12,color:"#64748b"}}>{r.product||"—"}</td>
@@ -1180,7 +1179,7 @@ export default function App() {
                         </div>
                       );
                     })}
-                    {sc.length===0&&<div style={{fontSize:11,color:"#d1d9e6",textAlign:"center",padding:"16px 0",border:"1px dashed #1e2433",borderRadius:8}}>Empty</div>}
+                    {sc.length===0&&<div style={{fontSize:11,color:"#d1d9e6",textAlign:"center",padding:"16px 0",border:"1px dashed #e2e8f0",borderRadius:8}}>Empty</div>}
                   </div>
                 );
               })}
@@ -1201,7 +1200,7 @@ export default function App() {
                     {c.followUp&&<div style={{fontSize:10,fontWeight:500}} className={isOverdue(c.followUp)?"ov":isDueSoon(c.followUp)?"ds":""}>{fmtDate(c.followUp)}</div>}
                   </div>
                 ))}
-                {annualReview.length===0&&<div style={{fontSize:11,color:"#d1d9e6",textAlign:"center",padding:"16px 0",border:"1px dashed #1e2433",borderRadius:8}}>No reviews due</div>}
+                {annualReview.length===0&&<div style={{fontSize:11,color:"#d1d9e6",textAlign:"center",padding:"16px 0",border:"1px dashed #e2e8f0",borderRadius:8}}>No reviews due</div>}
               </div>
             </div>
           </div>
@@ -1326,7 +1325,7 @@ export default function App() {
                 </div>
                 <button className="bg sm" onClick={closeClient}>✕</button>
               </div>
-              <div style={{display:"flex",borderBottom:"1px solid #1e2433",marginTop:14,overflowX:"auto"}}>
+              <div style={{display:"flex",borderBottom:"1px solid #e2e8f0",marginTop:14,overflowX:"auto"}}>
                 {[["details","Details"],["milestones","Milestones"],["rating","Rating"],["history","Activity"]].map(([t,l])=>(
                   <button key={t} className={`tb ${selTab===t?"on":""}`} onClick={()=>setSelTab(t)}>
                     {l}
@@ -1406,8 +1405,8 @@ export default function App() {
 
                 {/* Children */}
                 <div style={{marginBottom:14}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10,paddingBottom:7,borderBottom:"1px solid #1e2433"}}>
-                    <span style={{fontSize:13,color:"#64748b",fontWeight:600}}>Children</span><span style={{fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>Children</span>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10,paddingBottom:7,borderBottom:"1px solid #e2e8f0"}}>
+                    <span style={{fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>Children</span>
                     <button className="bg sm" style={{marginLeft:"auto"}} onClick={addChild}>+ Add</button>
                   </div>
                   {(!ff.children||ff.children.length===0)?<div style={{fontSize:12,color:"#64748b",textAlign:"center",padding:"6px 0"}}>No children added</div>:(
@@ -1476,7 +1475,7 @@ export default function App() {
                       </div>
                       <div style={{display:"flex",gap:7}}>
                         <button style={{flex:1,background:"#34d39922",border:"1px solid #34d39944",color:"#34d399",borderRadius:6,padding:"5px 0",fontSize:12,fontWeight:700,cursor:"pointer"}} onClick={()=>{ markContacted(sel.id,alert.key,`Milestone contact: ${alert.personName} — Age ${alert.milestone.label}`); setSel(p=>p?{...p,dismissedAlerts:{...(p.dismissedAlerts||{}),[alert.key]:true}}:null); }}>✓ Mark Contacted</button>
-                        <button style={{background:"none",border:"1px solid #2d3748",color:"#64748b",borderRadius:6,padding:"5px 12px",fontSize:11,cursor:"pointer"}} onClick={()=>{ dismissAlert(sel.id,alert.key); setSel(p=>p?{...p,dismissedAlerts:{...(p.dismissedAlerts||{}),[alert.key]:true}}:null); }}>Dismiss</button>
+                        <button style={{background:"none",border:"1px solid #cbd5e1",color:"#64748b",borderRadius:6,padding:"5px 12px",fontSize:11,cursor:"pointer"}} onClick={()=>{ dismissAlert(sel.id,alert.key); setSel(p=>p?{...p,dismissedAlerts:{...(p.dismissedAlerts||{}),[alert.key]:true}}:null); }}>Dismiss</button>
                       </div>
                     </div>
                   ); });
@@ -1496,7 +1495,7 @@ export default function App() {
                   ))}
                   {sel.rating&&<button className="bg" style={{padding:"10px 8px"}} onClick={()=>setRating(sel.id,null)}><div style={{fontSize:11}}>Clear</div></button>}
                 </div>
-                <div style={{borderTop:"1px solid #1e2433",paddingTop:14}}>
+                <div style={{borderTop:"1px solid #e2e8f0",paddingTop:14}}>
                   <div style={{fontSize:10,color:"#64748b",marginBottom:9,textTransform:"uppercase",fontWeight:600}}>AI Suggestion</div>
                   {!aiRating&&!ratingLoading&&<button className="bai" onClick={suggestRating}>Get AI Suggestion</button>}
                   {ratingLoading&&<p className="loading">Analyzing…</p>}
@@ -1603,7 +1602,7 @@ export default function App() {
                 {/* Webhook URL */}
                 <div className="card">
                   <div style={{fontSize:12,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Your Webhook URL</div>
-                  <div style={{background:"#f8fafc",border:"1px solid #2d3748",borderRadius:7,padding:"9px 12px",fontFamily:"'DM Mono',monospace",fontSize:11,color:"#60a5fa",wordBreak:"break-all",marginBottom:8}}>{WEBHOOK_URL}</div>
+                  <div style={{background:"#f8fafc",border:"1px solid #cbd5e1",borderRadius:7,padding:"9px 12px",fontFamily:"'DM Mono',monospace",fontSize:11,color:"#60a5fa",wordBreak:"break-all",marginBottom:8}}>{WEBHOOK_URL}</div>
                   <button className="bg sm" onClick={()=>{ navigator.clipboard.writeText(WEBHOOK_URL); }}>Copy URL</button>
                   <div style={{fontSize:11,color:"#64748b",marginTop:8}}>Paste this into your Facebook App's webhook subscription for 'leadgen' events.</div>
                 </div>
@@ -1611,7 +1610,7 @@ export default function App() {
                 {/* Verify token */}
                 <div className="card">
                   <div style={{fontSize:12,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Verify Token</div>
-                  <div style={{background:"#f8fafc",border:"1px solid #2d3748",borderRadius:7,padding:"9px 12px",fontFamily:"'DM Mono',monospace",fontSize:11,color:"#34d399",marginBottom:8}}>bankers-life-crm-verify</div>
+                  <div style={{background:"#f8fafc",border:"1px solid #cbd5e1",borderRadius:7,padding:"9px 12px",fontFamily:"'DM Mono',monospace",fontSize:11,color:"#34d399",marginBottom:8}}>bankers-life-crm-verify</div>
                   <div style={{fontSize:11,color:"#64748b"}}>Use this as the 'Verify Token' when setting up your Facebook webhook subscription.</div>
                 </div>
 
@@ -1637,7 +1636,7 @@ export default function App() {
 
             {/* Leads table */}
             <div className="card" style={{padding:0,overflow:"hidden"}}>
-              <div style={{padding:"14px 16px",borderBottom:"1px solid #1e2433",display:"flex",alignItems:"center",gap:8}}>
+              <div style={{padding:"14px 16px",borderBottom:"1px solid #e2e8f0",display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>Incoming Leads</span>
                 <span style={{fontSize:12,color:"#64748b"}}>{fbLeads.length} total</span>
                 <button className="bp sm" style={{marginLeft:"auto"}} onClick={()=>{ setForm({...emptyClient,notes:"facebook_lead",stage:"new_lead",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}}); setEditId(null); setShowForm(true); }}>+ Add Manual Lead</button>
@@ -1656,7 +1655,7 @@ export default function App() {
                   </tr></thead>
                   <tbody>
                     {fbLeads.map(c=>(
-                      <tr key={c.id} style={{borderTop:"1px solid #1e2433",cursor:"pointer"}} onClick={()=>openClient(c)} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <tr key={c.id} style={{borderTop:"1px solid #e2e8f0",cursor:"pointer"}} onClick={()=>openClient(c)} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                         <td style={{padding:"10px 14px"}}><div style={{fontWeight:600,fontSize:13,color:"#0f172a"}}>{c.name}</div><div style={{fontSize:10,color:"#1877f2",fontWeight:600}}>Facebook Lead</div></td>
                         <td style={{padding:"10px 14px",fontSize:12,color:"#64748b"}}>{c.phone||"—"}</td>
                         <td style={{padding:"10px 14px",fontSize:12,color:"#64748b"}}>{c.email||"—"}</td>
@@ -1764,7 +1763,7 @@ export default function App() {
               {stageMsg.messages.messages.map((msg,i)=>{
                 const text = msg.template(stageMsg.client.name.split(" ")[0]||stageMsg.client.name, stageMsg.client.product);
                 return (
-                  <div key={i} style={{background:"#f8fafc",border:"1px solid #2d3748",borderRadius:10,padding:14,marginBottom:10}}>
+                  <div key={i} style={{background:"#f8fafc",border:"1px solid #cbd5e1",borderRadius:10,padding:14,marginBottom:10}}>
                     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
                       <span style={{fontSize:14}}>{msg.icon}</span>
                       <span style={{fontSize:12,fontWeight:600,color:"#64748b"}}>{msg.label}</span>
@@ -1791,7 +1790,7 @@ export default function App() {
               })}
 
               {/* Footer actions */}
-              <div style={{borderTop:"1px solid #1e2433",paddingTop:14,display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <div style={{borderTop:"1px solid #e2e8f0",paddingTop:14,display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button className="bg" onClick={()=>setStageMsg(null)}>Cancel</button>
                 <button style={{background:"#f1f5f9",border:"1px solid #334155",color:"#64748b",borderRadius:7,padding:"7px 14px",fontSize:13,cursor:"pointer"}}
                   onClick={async()=>{
@@ -1842,7 +1841,7 @@ export default function App() {
               {/* Step 1: Upload */}
               {importStep==="upload"&&(
                 <div>
-                  <div style={{border:"2px dashed #2d3748",borderRadius:10,padding:"40px 20px",textAlign:"center",marginBottom:16,background:"#f8fafc"}}>
+                  <div style={{border:"2px dashed #cbd5e1",borderRadius:10,padding:"40px 20px",textAlign:"center",marginBottom:16,background:"#f8fafc"}}>
                     <div style={{fontSize:32,marginBottom:8}}></div>
                     <div style={{fontSize:14,fontWeight:600,color:"#64748b",marginBottom:4}}>Drop your CSV file here</div>
                     <div style={{fontSize:12,color:"#64748b",marginBottom:16}}>or click to browse</div>
@@ -1935,7 +1934,7 @@ export default function App() {
                       <div style={{fontSize:11,color:"#64748b",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Preview (first 3 rows)</div>
                       <div style={{background:"#f8fafc",borderRadius:8,overflow:"hidden"}}>
                         {importData.slice(0,3).map((row,i)=>(
-                          <div key={i} style={{padding:"8px 12px",borderBottom:"1px solid #1e2433",fontSize:12,color:"#64748b",display:"flex",gap:12}}>
+                          <div key={i} style={{padding:"8px 12px",borderBottom:"1px solid #e2e8f0",fontSize:12,color:"#64748b",display:"flex",gap:12}}>
                             <span style={{color:"#0f172a",fontWeight:600}}>{importMapping.name?row[importMapping.name]||"—":"—"}</span>
                             <span>{importMapping.phone?row[importMapping.phone]||"":""}</span>
                             <span>{importMapping.product?row[importMapping.product]||"":""}</span>
@@ -1998,7 +1997,7 @@ export default function App() {
                         </tr></thead>
                         <tbody>
                           {mapped.slice(0,50).map((r,i)=>(
-                            <tr key={i} style={{borderTop:"1px solid #1e2433"}}>
+                            <tr key={i} style={{borderTop:"1px solid #e2e8f0"}}>
                               <td style={{padding:"6px 10px",color:"#0f172a",fontWeight:500}}>{r.name}</td>
                               <td style={{padding:"6px 10px",color:"#64748b"}}>{r.phone||"—"}</td>
                               <td style={{padding:"6px 10px",color:"#64748b"}}>{r.product||"—"}</td>
@@ -2009,11 +2008,21 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
-                    {importErrors.length>0&&<div style={{background:"#7f1d1d22",border:"1px solid #7f1d1d55",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#f87171"}}>{importErrors.join(", ")}</div>}
+                    {importing&&(
+                      <div style={{marginBottom:14}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                          <span style={{fontSize:12,fontWeight:600,color:"#60a5fa"}}>Importing...</span>
+                          <span style={{fontSize:12,fontWeight:700,color:"#60a5fa"}}>{importProgress}/{mapped.length}</span>
+                        </div>
+                        <div className="pbb" style={{height:8}}><div className="pb" style={{width:`${mapped.length?(importProgress/mapped.length)*100:0}%`,background:"#3b82f6"}}/></div>
+                      </div>
+                    )}
+                    {importErrors.length>0&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#dc2626"}}>{importErrors.map((err,i)=><div key={i}>{err}</div>)}</div>}
                     <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                       <button className="bg" onClick={()=>setImportStep("map")}>← Back</button>
                       <button className="bp" disabled={importing||mapped.length===0} onClick={async()=>{
                         setImporting(true);
+                        setImportProgress(0);
                         showSaving();
                         let imported = 0;
                         const errors = [];
@@ -2022,13 +2031,14 @@ export default function App() {
                             const row = clientToDb({...emptyClient,...r,products:r.products&&r.products.length?r.products:[r.product||PRODUCTS[0]],product:r.products?.[0]||r.product||PRODUCTS[0],clientStatus:r.clientStatus||"client",dob:"",followUp:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}});
                             const rows = await sb("clients",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify(row)});
                             if(rows&&rows[0]) { setClients(p=>[...p,dbToClient(rows[0])]); imported++; }
-                          } catch(e) { errors.push(r.name); }
+                          setImportProgress(prev=>prev+1);
+                          } catch(e) { console.error("Import failed:", r.name, e.message); errors.push(`${r.name}: ${(e.message||"").substring(0,60)}`); }
                         }
                         setImporting(false);
-                        if(errors.length) { setImportErrors([`Failed to import: ${errors.slice(0,5).join(", ")}`]); showError(); }
+                        if(errors.length) { setImportErrors([`Failed: ${errors.length} of ${mapped.length}`, ...errors.slice(0,5)]); showError(); }
                         else { showSaved(); setImportStep("done"); }
                       }}>
-                        {importing?`Importing…`:`Import ${mapped.length} Clients`}
+                        {importing?`Importing… ${importProgress}/${mapped.length}`:`Import ${mapped.length} Clients`}
                       </button>
                     </div>
                   </div>
