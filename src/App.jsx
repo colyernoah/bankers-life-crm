@@ -36,7 +36,7 @@ function dbToClient(row) {
     premium: Number(row.premium)||0,
     stage: row.stage||"new_lead",
     followUp: row.follow_up||"",
-    dob: row.follow_up||"",
+    dob: row.dob||"",
     notes: row.notes||"",
     rating: row.rating||null,
     allPolicies: row.all_policies||[],
@@ -59,7 +59,8 @@ function clientToDb(c) {
     carrier: c.carrier||"Bankers Life",
     premium: Number(c.premium)||0,
     stage: c.stage||"new_lead",
-    follow_up: c.dob||c.followUp||null,
+    follow_up: c.followUp||null,
+    dob: c.dob||null,
     notes: c.notes||"",
     rating: c.rating||null,
     all_policies: c.allPolicies||[],
@@ -189,7 +190,7 @@ const MILESTONES = [
   { age:59.5, label:"59½", desc:"IRA/401k penalty-free withdrawals", icon:"" },
   { age:62,   label:"62",  desc:"Early Social Security eligibility",  icon:"" },
   { age:65,   label:"65",  desc:"Medicare eligibility",               icon:"" },
-  { age:75,   label:"75",  desc:"RMDs increase / Medicare review",    icon:"" },
+  { age:73,   label:"73",  desc:"RMDs begin (SECURE 2.0)",            icon:"" },
 ];
 const REFERRAL_STATUSES = {
   new:      { label:"New",       color:"#60a5fa", bg:"#60a5fa22" },
@@ -200,12 +201,31 @@ const REFERRAL_STATUSES = {
 };
 
 const today = new Date(); today.setHours(0,0,0,0);
+const todayISO = today.toISOString().slice(0,10);
+const MIN_DOB_ISO = "1900-01-01";
 const isOverdue  = d => { if(!d) return false; const x=new Date(d); x.setHours(0,0,0,0); return x<today; };
 const isDueSoon  = d => { if(!d) return false; const x=new Date(d); x.setHours(0,0,0,0); const diff=(x-today)/86400000; return diff>=0&&diff<=7; };
 const fmtDate    = d => { if(!d) return "—"; return new Date(d+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
 const fmtDT      = d => { if(!d) return "—"; const x=new Date(d); return x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})+" · "+x.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}); };
 const calcAge    = dob => { if(!dob) return null; return Math.floor((Date.now()-new Date(dob+"T00:00:00").getTime())/3.15576e10); };
 const isClientStage = s => CLIENT_STAGES.includes(s);
+
+// Next occurrence of an MM-DD in the future (rolls to next year if already passed)
+function getNextAnnualDate(dobStr) {
+  const dob = new Date(dobStr+"T00:00:00");
+  if(isNaN(dob)) return null;
+  const next = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+  if(next < today) next.setFullYear(next.getFullYear()+1);
+  return next;
+}
+
+// Default Annual Review Date = Oct 15 of the next year it hasn't yet passed
+function defaultAnnualReviewDate() {
+  const y = today.getFullYear();
+  const oct15 = new Date(y, 9, 15); // month index 9 = October
+  if(oct15 < today) oct15.setFullYear(y+1);
+  return oct15.toISOString().slice(0,10);
+}
 
 function getMilestoneDate(dobStr, ageDecimal) {
   const dob = new Date(dobStr+"T00:00:00");
@@ -234,7 +254,39 @@ function getClientAlerts(client) {
         urgency:diffDays<0?"birthday":diffDays<=30?"urgent":"upcoming",
         rating:client.rating,product:client.product});
     });
+    // Annual birthday reach-out (retention) — fires in the 14 days before birthday
+    const bday = getNextAnnualDate(person.dob);
+    if(bday) {
+      const diffDays = Math.round((bday-today)/86400000);
+      if(diffDays>=0 && diffDays<=14) {
+        const key = `${client.id}_${person.name}_BDAY_${bday.getFullYear()}`;
+        if(!dismissed[key]) {
+          alerts.push({key,clientId:client.id,clientName:client.name,personName:person.name,
+            relation:person.relation,
+            milestone:{label:"Birthday",desc:"Reach out — client retention",icon:"🎂"},
+            milestoneDate:bday,diffDays,urgency:"birthday",
+            rating:client.rating,product:client.product});
+        }
+      }
+    }
   });
+  // Annual review reminder — fires 30 days before the review date
+  if(ff.annualReviewDate) {
+    const next = getNextAnnualDate(ff.annualReviewDate);
+    if(next) {
+      const diffDays = Math.round((next-today)/86400000);
+      if(diffDays>=0 && diffDays<=30) {
+        const key = `${client.id}_ANNUAL_REVIEW_${next.getFullYear()}`;
+        if(!dismissed[key]) {
+          alerts.push({key,clientId:client.id,clientName:client.name,personName:client.name,
+            relation:"Client",
+            milestone:{label:"Annual Review",desc:"Schedule annual policy review",icon:"📅"},
+            milestoneDate:next,diffDays,urgency:diffDays<=7?"urgent":"upcoming",
+            rating:client.rating,product:client.product});
+        }
+      }
+    }
+  }
   return alerts;
 }
 
@@ -251,7 +303,7 @@ const ffComplete = ff => {
   return {pct:Math.round((filled/8)*100),filled,total:8};
 };
 
-const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicareEffectiveDate:"",medications:"",income:"",beneficiary:""};
+const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicarePartAEffective:"",medicarePartBEffective:"",medications:"",income:"",beneficiary:"",annualReviewDate:""};
 const emptyClient = {name:"",phone:"",email:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",dob:"",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
 const emptyEntry = {type:"call",text:"",followUpUpdate:""};
 
@@ -641,10 +693,19 @@ export default function App() {
   const SHdr = ({icon,title}) => (
     <div className="sec-hdr"><span style={{fontSize:15}}>{icon}</span><span style={{fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>{title}</span></div>
   );
-  const FFField = ({label,value,onChange,type="text",placeholder=""}) => (
-    <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
-    <input className="inp" type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder||label}/></div>
-  );
+  const FFField = ({label,value,onChange,type="text",placeholder="",min,max}) => {
+    const isDate = type==="date";
+    const isDOB = isDate && /dob|date of birth|birth/i.test(label);
+    const resolvedMin = min || (isDOB ? MIN_DOB_ISO : undefined);
+    const resolvedMax = max || (isDOB ? todayISO : undefined);
+    return (
+      <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
+      <input className="inp" type={type} value={value||""}
+        onChange={e=>onChange(e.target.value)}
+        placeholder={placeholder||label}
+        {...(isDate ? {min:resolvedMin, max:resolvedMax} : {})}/></div>
+    );
+  };
   const FFArea = ({label,value,onChange,placeholder,rows=2}) => (
     <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
     <textarea className="inp" value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder||label} rows={rows} style={{resize:"vertical"}}/></div>
@@ -670,7 +731,7 @@ export default function App() {
       <style>{CSS}</style>
 
       {/* ── Header / Nav ─────────────────────────────────── */}
-      <div style={{background:"#ffffff",borderBottom:"1px solid #e2e8f0",padding:"0 24px",display:"flex",alignItems:"center",gap:4,height:58,flexWrap:"nowrap",overflow:"hidden",boxShadow:"0 1px 3px rgba(15,23,42,.06)"}}>
+      <div style={{background:"#ffffff",borderBottom:"1px solid #e2e8f0",padding:"0 24px",display:"flex",alignItems:"center",gap:4,height:58,flexWrap:"nowrap",overflow:"visible",position:"relative",zIndex:50,boxShadow:"0 1px 3px rgba(15,23,42,.06)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginRight:12,flexShrink:0}}>
           <div style={{width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#1d4ed8,#1e40af)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:"0 2px 8px rgba(29,78,216,.3)"}}>🏦</div>
           <span style={{fontSize:14,fontWeight:700,color:"#0f172a",letterSpacing:"-0.03em",whiteSpace:"nowrap"}}>Bankers Life</span>
@@ -1374,6 +1435,7 @@ export default function App() {
                     <FFField label="Occupation" value={ff.occupation} onChange={v=>updFF("occupation",v)} placeholder="Occupation / retired"/>
                     <FFField label="Preferred Contact Time" value={ff.preferredContactTime} onChange={v=>updFF("preferredContactTime",v)} placeholder="e.g. Mornings"/>
                     <FFField label="Beneficiary" value={ff.beneficiary} onChange={v=>updFF("beneficiary",v)} placeholder="Name & relationship"/>
+                    <FFField label="Annual Review Date" value={ff.annualReviewDate||defaultAnnualReviewDate()} onChange={v=>updFF("annualReviewDate",v)} type="date"/>
                   </div>
                   {ff.dob&&(()=>{
                     const age=calcAge(ff.dob);
@@ -1430,7 +1492,9 @@ export default function App() {
                   <div className="ff-grid">
                     <div style={{gridColumn:"1/-1"}}><FFField label="Current Health Insurance" value={ff.currentHealthInsurance} onChange={v=>updFF("currentHealthInsurance",v)} placeholder="Carrier & plan"/></div>
                     <FFField label="Medicare Number" value={ff.medicareNumber} onChange={v=>updFF("medicareNumber",v)} placeholder="Medicare ID"/>
-                    <FFField label="Medicare Effective Date" value={ff.medicareEffectiveDate} onChange={v=>updFF("medicareEffectiveDate",v)} type="date"/>
+                    <div/>
+                    <FFField label="Part A Effective Date" value={ff.medicarePartAEffective} onChange={v=>updFF("medicarePartAEffective",v)} type="date"/>
+                    <FFField label="Part B Effective Date" value={ff.medicarePartBEffective} onChange={v=>updFF("medicarePartBEffective",v)} type="date"/>
                     <div style={{gridColumn:"1/-1"}}><FFArea label="Medications" value={ff.medications} onChange={v=>updFF("medications",v)} placeholder="Current medications..." rows={2}/></div>
                   </div>
                 </div>
@@ -1702,8 +1766,17 @@ export default function App() {
                 <div><label>Policy #</label><input className="inp" value={form.policyNumber} onChange={e=>setForm(p=>({...p,policyNumber:e.target.value}))}/></div>
                 <div>
                   <label>Date of Birth</label>
-                  <input className="inp" type="date" value={form.dob||""} onChange={e=>setForm(p=>({...p,dob:e.target.value,followUp:e.target.value}))}/>
+                  <input className="inp" type="date"
+                    min={MIN_DOB_ISO} max={todayISO}
+                    value={form.dob||""}
+                    onChange={e=>setForm(p=>({...p,dob:e.target.value}))}/>
                   {form.dob&&<div style={{fontSize:11,color:"#60a5fa",marginTop:3,fontWeight:600}}>Age: {calcAge(form.dob)} years old</div>}
+                </div>
+                <div>
+                  <label>Follow Up Date</label>
+                  <input className="inp" type="date"
+                    value={form.followUp||""}
+                    onChange={e=>setForm(p=>({...p,followUp:e.target.value}))}/>
                 </div>
                 <div style={{gridColumn:"1 / -1"}}><label>Notes</label><textarea className="inp" value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={2} style={{resize:"vertical"}}/></div>
               </div>
