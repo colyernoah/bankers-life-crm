@@ -560,6 +560,36 @@ const CSS = `
   .pact{padding:10px 14px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all .15s;border:1px solid transparent}.pact:hover{filter:brightness(.97);transform:translateX(2px)}
 `;
 
+// --- Module-scope form primitives (defined OUTSIDE App so React doesn't
+// remount them on every parent render — fixes "can only type one letter"
+// input focus loss). ---
+function SHdr({icon,title}){
+  return (
+    <div className="sec-hdr"><span style={{fontSize:15}}>{icon}</span><span style={{fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>{title}</span></div>
+  );
+}
+function FFField({label,value,onChange,type="text",placeholder="",min,max}){
+  const isDate = type==="date";
+  // NOTE: deliberately NOT applying a `min` attribute to date inputs — Chromium
+  // rejects intermediate typed values (e.g. while typing a 4-digit year) if they
+  // fall below `min`, which made years feel un-typable. `max={todayISO}` is only
+  // applied when an explicit max is passed, to avoid the same typing friction.
+  return (
+    <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
+    <input className="inp" type={type} value={value||""}
+      onChange={e=>onChange(e.target.value)}
+      placeholder={placeholder||label}
+      {...(isDate && min ? {min} : {})}
+      {...(isDate && max ? {max} : {})}/></div>
+  );
+}
+function FFArea({label,value,onChange,placeholder,rows=2}){
+  return (
+    <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
+    <textarea className="inp" value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder||label} rows={rows} style={{resize:"vertical"}}/></div>
+  );
+}
+
 export default function App() {
   const [clients, setClients]         = useState([]);
   const [referrals, setReferrals]     = useState([]);
@@ -840,26 +870,6 @@ export default function App() {
     if(!rating) return null; const r=RATINGS[rating];
     return <span style={{background:r.bg,border:`1px solid ${r.color}55`,color:r.color,borderRadius:20,padding:size==="lg"?"4px 13px":"2px 8px",fontSize:size==="lg"?12:10,fontWeight:700}}>{rating}</span>;
   };
-  const SHdr = ({icon,title}) => (
-    <div className="sec-hdr"><span style={{fontSize:15}}>{icon}</span><span style={{fontSize:12,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>{title}</span></div>
-  );
-  const FFField = ({label,value,onChange,type="text",placeholder="",min,max}) => {
-    const isDate = type==="date";
-    const isDOB = isDate && /dob|date of birth|birth/i.test(label);
-    const resolvedMin = min || (isDOB ? MIN_DOB_ISO : undefined);
-    const resolvedMax = max || (isDOB ? todayISO : undefined);
-    return (
-      <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
-      <input className="inp" type={type} value={value||""}
-        onChange={e=>onChange(e.target.value)}
-        placeholder={placeholder||label}
-        {...(isDate ? {min:resolvedMin, max:resolvedMax} : {})}/></div>
-    );
-  };
-  const FFArea = ({label,value,onChange,placeholder,rows=2}) => (
-    <div><div style={{fontSize:11,color:"#64748b",marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{label}</div>
-    <textarea className="inp" value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder||label} rows={rows} style={{resize:"vertical"}}/></div>
-  );
   const renderMd = t => t.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/^- (.+)$/gm,'<div style="display:flex;gap:7px;margin:2px 0"><span style="color:#3b82f6;flex-shrink:0">•</span><span>$1</span></div>').replace(/\n/g,"<br/>");
 
   const pipelineDD = ["pipeline","performance","report"].includes(view);
@@ -1958,7 +1968,6 @@ export default function App() {
                 <div>
                   <label>Date of Birth</label>
                   <input className="inp" type="date"
-                    min={MIN_DOB_ISO} max={todayISO}
                     value={form.dob||""}
                     onChange={e=>setForm(p=>({...p,dob:e.target.value}))}/>
                   {form.dob&&<div style={{fontSize:11,color:"#60a5fa",marginTop:3,fontWeight:600}}>Age: {calcAge(form.dob)} years old</div>}
