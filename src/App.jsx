@@ -21,13 +21,152 @@ async function sb(path, options={}) {
   return text ? JSON.parse(text) : null;
 }
 
+// ─── Supabase Storage ────────────────────────────────────────
+// Bucket name for per-client images. Must exist in Supabase (see migration).
+const CLIENT_FILES_BUCKET = "client-files";
+
+async function uploadClientFile(clientId, file) {
+  const path = `${clientId}/${Date.now()}-${file.name.replace(/[^\w.\-]+/g,"_")}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${CLIENT_FILES_BUCKET}/${path}`, {
+    method:"POST",
+    headers:{
+      "apikey":SUPABASE_KEY,
+      "Authorization":`Bearer ${SUPABASE_KEY}`,
+      "Content-Type":file.type||"application/octet-stream",
+      "x-upsert":"false",
+    },
+    body:file,
+  });
+  if(!res.ok) throw new Error(await res.text());
+  return path;
+}
+async function listClientFiles(clientId) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${CLIENT_FILES_BUCKET}`, {
+    method:"POST",
+    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json"},
+    body:JSON.stringify({prefix:`${clientId}/`,limit:100,sortBy:{column:"created_at",order:"desc"}}),
+  });
+  if(!res.ok) return [];
+  return await res.json();
+}
+async function deleteClientFile(clientId, name) {
+  await fetch(`${SUPABASE_URL}/storage/v1/object/${CLIENT_FILES_BUCKET}/${clientId}/${name}`, {
+    method:"DELETE",
+    headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`},
+  });
+}
+function clientFileUrl(clientId, name) {
+  return `${SUPABASE_URL}/storage/v1/object/public/${CLIENT_FILES_BUCKET}/${clientId}/${name}`;
+}
+
+function ClientFilesPanel({ clientId }) {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const refresh = useCallback(async () => {
+    if(!clientId) return;
+    setLoading(true); setError(null);
+    try { setFiles(await listClientFiles(clientId)); }
+    catch(e) { setError(e.message||"Failed to load files"); }
+    setLoading(false);
+  }, [clientId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const handleUpload = async (e) => {
+    const list = Array.from(e.target.files||[]);
+    if(!list.length) return;
+    setUploading(true); setError(null);
+    try {
+      for(const f of list) await uploadClientFile(clientId, f);
+      await refresh();
+    } catch(err) {
+      setError(err.message||"Upload failed");
+    }
+    setUploading(false);
+    if(fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleDelete = async (name) => {
+    if(!window.confirm(`Delete ${name}?`)) return;
+    try { await deleteClientFile(clientId, name); await refresh(); }
+    catch(err) { setError(err.message||"Delete failed"); }
+  };
+
+  const isImage = (name) => /\.(png|jpe?g|gif|webp|heic|bmp|svg)$/i.test(name||"");
+
+  return (
+    <div style={{padding:"16px 22px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <button className="bp sm" disabled={uploading} onClick={()=>fileInputRef.current&&fileInputRef.current.click()}>
+          {uploading?"Uploading…":"+ Upload File"}
+        </button>
+        <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" style={{display:"none"}} onChange={handleUpload}/>
+        <button className="bg sm" onClick={refresh}>↺ Refresh</button>
+        {loading&&<span style={{fontSize:11,color:"#64748b"}}>Loading…</span>}
+      </div>
+      {error&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",color:"#b91c1c",padding:"8px 12px",borderRadius:6,fontSize:12,marginBottom:10}}>{error}</div>}
+      {(!loading && files.length===0)&&(
+        <div style={{textAlign:"center",padding:"28px 0",color:"#64748b",fontSize:13}}>
+          No files yet. Upload images, scans of policies, or related documents.
+        </div>
+      )}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))",gap:10}}>
+        {files.map(f=>{
+          const url = clientFileUrl(clientId, f.name);
+          return (
+            <div key={f.name} style={{border:"1px solid #e2e8f0",borderRadius:8,overflow:"hidden",background:"#fff"}}>
+              <a href={url} target="_blank" rel="noreferrer" style={{display:"block",aspectRatio:"1/1",background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                {isImage(f.name)
+                  ? <img src={url} alt={f.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  : <span style={{fontSize:32}}>📄</span>
+                }
+              </a>
+              <div style={{padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}>
+                <div style={{flex:1,fontSize:11,color:"#0f172a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={f.name}>{f.name.replace(/^\d+-/,"")}</div>
+                <button onClick={()=>handleDelete(f.name)} title="Delete" style={{background:"none",border:"none",color:"#dc2626",cursor:"pointer",fontSize:13,padding:0}}>✕</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Compute the name to display for a client: nickname wins, else "first last", else legacy `name`
+function displayName(c) {
+  if(!c) return "";
+  if(c.nickname && c.nickname.trim()) return c.nickname.trim();
+  const composed = [c.firstName, c.lastName].filter(x=>x&&x.trim()).join(" ").trim();
+  return composed || c.name || "";
+}
+
 // Map DB row → app client shape
 function dbToClient(row) {
+  // Backfill first/last from legacy single `name` if the new columns aren't populated
+  let firstName = row.first_name||"";
+  let lastName  = row.last_name||"";
+  if(!firstName && !lastName && row.name) {
+    const parts = row.name.trim().split(/\s+/);
+    firstName = parts[0]||"";
+    lastName  = parts.slice(1).join(" ")||"";
+  }
   return {
     id: row.id,
     name: row.name,
+    firstName,
+    lastName,
+    nickname: row.nickname||"",
     phone: row.phone||"",
     email: row.email||"",
+    street: row.street||"",
+    city: row.city||"",
+    state: row.state||"",
+    zip: row.zip||"",
     product: row.product||"",
     products: row.products||[row.product||""],
     clientStatus: row.client_status||"prospect",
@@ -48,10 +187,18 @@ function dbToClient(row) {
 
 // Map app client → DB row shape
 function clientToDb(c) {
+  const resolvedName = displayName(c) || c.name || "";
   return {
-    name: c.name,
+    name: resolvedName,
+    first_name: c.firstName||null,
+    last_name: c.lastName||null,
+    nickname: c.nickname||null,
     phone: c.phone||"",
     email: c.email||"",
+    street: c.street||null,
+    city: c.city||null,
+    state: c.state||null,
+    zip: c.zip||null,
     product: (c.products&&c.products[0])||c.product||"",
     products: c.products||[c.product||""],
     client_status: c.clientStatus||"prospect",
@@ -304,7 +451,7 @@ const ffComplete = ff => {
 };
 
 const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicarePartAEffective:"",medicarePartBEffective:"",medications:"",income:"",beneficiary:"",annualReviewDate:""};
-const emptyClient = {name:"",phone:"",email:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",dob:"",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
+const emptyClient = {name:"",firstName:"",lastName:"",nickname:"",phone:"",email:"",street:"",city:"",state:"",zip:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",dob:"",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
 const emptyEntry = {type:"call",text:"",followUpUpdate:""};
 
 // Client data is loaded from Supabase
@@ -521,7 +668,10 @@ export default function App() {
   const closeClient = () => { setSel(null); setFf(null); setFfDirty(false); setAiSummary(null); setAiRating(null); };
 
   const saveClient = async () => {
-    if(!form.name.trim()) return;
+    const hasName = (form.firstName||"").trim() || (form.lastName||"").trim() || (form.name||"").trim();
+    if(!hasName) return;
+    // Keep form.name in sync so legacy fields/UI stay populated
+    form.name = displayName(form) || form.name;
     showSaving();
     try {
       if(editId) {
@@ -1378,17 +1528,19 @@ export default function App() {
             <div style={{padding:"18px 22px 0"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                 <div>
-                  <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:5}}>
-                    <h2 style={{fontSize:18,fontWeight:700,color:"#0f172a"}}>{sel.name}</h2>
+                  <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:5,flexWrap:"wrap"}}>
+                    <h2 style={{fontSize:18,fontWeight:700,color:"#0f172a"}}>{displayName(sel)}</h2>
+                    {sel.nickname&&sel.firstName&&<span style={{fontSize:12,color:"#64748b"}}>({sel.firstName} {sel.lastName})</span>}
                     <RatingBadge rating={sel.rating} size="lg"/>
                     {getClientAlerts(sel).length>0&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa44",color:"#a78bfa",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}> {getClientAlerts(sel).length}</span>}
+                    {(()=>{ const n=referrals.filter(r=>r.fromClientId===sel.id).length; return n>0?<span title={`${n} referral${n===1?"":"s"} made`} style={{background:"#10b98122",border:"1px solid #10b98144",color:"#10b981",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700,cursor:"pointer"}} onClick={()=>{ closeClient(); setView("referrals"); }}>🤝 {n}</span>:null; })()}
                   </div>
                   <span className="tag" style={stageStyle(sel.stage)}>{STAGE_MAP[sel.stage]?.label}</span>
                 </div>
                 <button className="bg sm" onClick={closeClient}>✕</button>
               </div>
               <div style={{display:"flex",borderBottom:"1px solid #e2e8f0",marginTop:14,overflowX:"auto"}}>
-                {[["details","Details"],["milestones","Milestones"],["rating","Rating"],["history","Activity"]].map(([t,l])=>(
+                {[["details","Details"],["milestones","Milestones"],["rating","Rating"],["history","Activity"],["files","Files"]].map(([t,l])=>(
                   <button key={t} className={`tb ${selTab===t?"on":""}`} onClick={()=>setSelTab(t)}>
                     {l}
                     {t==="history"&&sel.activityLog?.length>0&&<span style={{background:"#3b82f622",color:"#60a5fa",borderRadius:10,padding:"1px 6px",fontSize:9,marginLeft:4}}>{sel.activityLog.length}</span>}
@@ -1419,6 +1571,33 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Address */}
+                {(sel.street||sel.city||sel.state||sel.zip)&&(
+                  <div style={{marginBottom:16}}>
+                    <SHdr icon="" title="Address"/>
+                    <div style={{fontSize:13,color:"#0f172a",lineHeight:1.5}}>
+                      {sel.street&&<div>{sel.street}</div>}
+                      <div>{[sel.city, sel.state].filter(Boolean).join(", ")}{sel.zip?` ${sel.zip}`:""}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Referrals Made */}
+                {(()=>{ const rs = referrals.filter(r=>r.fromClientId===sel.id); if(!rs.length) return null; const converted = rs.filter(r=>r.status==="converted").length; return (
+                  <div style={{marginBottom:16}}>
+                    <SHdr icon="" title={`Referrals Made (${rs.length}${converted?` · ${converted} converted`:""})`}/>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {rs.slice(0,5).map(r=>(
+                        <div key={r.id} style={{background:"#f8fafc",borderRadius:6,padding:"6px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div><div style={{fontSize:12,color:"#0f172a",fontWeight:600}}>{r.referredName}</div><div style={{fontSize:10,color:"#64748b"}}>{r.product||"—"} · {fmtDate(r.date)}</div></div>
+                          <span className="tag" style={{background:REFERRAL_STATUSES[r.status]?.bg,color:REFERRAL_STATUSES[r.status]?.color,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700}}>{REFERRAL_STATUSES[r.status]?.label||r.status}</span>
+                        </div>
+                      ))}
+                      {rs.length>5&&<button className="bg sm" onClick={()=>{ closeClient(); setView("referrals"); }} style={{alignSelf:"flex-start",fontSize:11,marginTop:4}}>View all {rs.length} →</button>}
+                    </div>
+                  </div>
+                ); })()}
 
                 {/* Fact Finder progress */}
                 {(()=>{ const {pct,filled,total}=ffComplete(ff); return (
@@ -1625,6 +1804,10 @@ export default function App() {
                 )}
               </div>
             )}
+
+            {selTab==="files"&&(
+              <ClientFilesPanel clientId={sel.id}/>
+            )}
           </div>
         </div>
       )}
@@ -1745,9 +1928,17 @@ export default function App() {
             <div style={{padding:20}}>
               <h2 style={{fontSize:16,fontWeight:700,color:"#0f172a",marginBottom:16}}>{editId?"Edit Client":"Add New Client"}</h2>
               <div className="fg" style={{marginBottom:12}}>
-                <div style={{gridColumn:"1 / -1"}}><label>Full Name *</label><input className="inp" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Client name"/></div>
+                <div><label>First Name *</label><input className="inp" value={form.firstName||""} onChange={e=>setForm(p=>({...p,firstName:e.target.value}))} placeholder="First"/></div>
+                <div><label>Last Name *</label><input className="inp" value={form.lastName||""} onChange={e=>setForm(p=>({...p,lastName:e.target.value}))} placeholder="Last"/></div>
+                <div style={{gridColumn:"1 / -1"}}><label>Nickname / Preferred Name</label><input className="inp" value={form.nickname||""} onChange={e=>setForm(p=>({...p,nickname:e.target.value}))} placeholder="Optional — shown in lists if set"/></div>
                 <div><label>Phone</label><input className="inp" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))}/></div>
                 <div><label>Email</label><input className="inp" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/></div>
+                <div style={{gridColumn:"1 / -1"}}><label>Street Address</label><input className="inp" value={form.street||""} onChange={e=>setForm(p=>({...p,street:e.target.value}))} placeholder="123 Main St"/></div>
+                <div><label>City</label><input className="inp" value={form.city||""} onChange={e=>setForm(p=>({...p,city:e.target.value}))}/></div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div><label>State</label><input className="inp" value={form.state||""} onChange={e=>setForm(p=>({...p,state:e.target.value}))} maxLength={2} placeholder="NC"/></div>
+                  <div><label>Zip</label><input className="inp" value={form.zip||""} onChange={e=>setForm(p=>({...p,zip:e.target.value}))} placeholder="28202"/></div>
+                </div>
                 <div style={{gridColumn:"1 / -1"}}>
                   <label>Products (select all that apply)</label>
                   <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:5}}>
