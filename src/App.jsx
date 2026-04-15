@@ -386,7 +386,8 @@ function getClientAlerts(client) {
   const ff = client.factFinder; if(!ff) return [];
   const dismissed = client.dismissedAlerts||{};
   const alerts = [], people = [];
-  if(ff.dob) people.push({name:client.name,dob:ff.dob,relation:"Client"});
+  const clientDob = client.dob || ff.dob;
+  if(clientDob) people.push({name:client.name,dob:clientDob,relation:"Client"});
   if(ff.spouseDob) people.push({name:ff.spouseName||"Spouse",dob:ff.spouseDob,relation:"Spouse"});
   (ff.children||[]).forEach(ch=>{ if(ch.dob) people.push({name:ch.name||"Child",dob:ch.dob,relation:"Child"}); });
   people.forEach(person=>{
@@ -437,20 +438,44 @@ function getClientAlerts(client) {
   return alerts;
 }
 
+// Build the flat list of upcoming birthdays within `days` days (default 30).
+// Includes client, spouse, and child birthdays. Sorted by soonest.
+function getUpcomingBirthdays(clients, days=30) {
+  const out = [];
+  clients.forEach(c => {
+    const ff = c.factFinder || {};
+    const people = [];
+    const cDob = c.dob || ff.dob;
+    if(cDob) people.push({name:c.name,dob:cDob,relation:"Client"});
+    if(ff.spouseDob) people.push({name:ff.spouseName||"Spouse",dob:ff.spouseDob,relation:"Spouse"});
+    (ff.children||[]).forEach(ch => { if(ch.dob) people.push({name:ch.name||"Child",dob:ch.dob,relation:"Child"}); });
+    people.forEach(p => {
+      const next = getNextAnnualDate(p.dob); if(!next) return;
+      const diffDays = Math.round((next-today)/86400000);
+      if(diffDays<0 || diffDays>days) return;
+      const turning = next.getFullYear() - new Date(p.dob).getFullYear();
+      out.push({clientId:c.id, clientName:c.name, personName:p.name, relation:p.relation,
+                date:next, diffDays, turning, rating:c.rating});
+    });
+  });
+  return out.sort((a,b)=>a.diffDays-b.diffDays);
+}
+
 const urgencyStyle = u => ({
   birthday:{ bg:"#faf5ff",border:"#c4b5fd",color:"#7c3aed",icon:"" },
   urgent:  { bg:"#fef2f2",border:"#fecaca",color:"#dc2626",icon:"●" },
   upcoming:{ bg:"#fffbeb",border:"#fcd34d",color:"#d97706",icon:"⚠️" },
 }[u]||{ bg:"#e8edf5",border:"#64748b",color:"#64748b",icon:"" });
 
-const ffComplete = ff => {
+const ffComplete = (ff, clientDob="") => {
   if(!ff) return {pct:0,filled:0,total:8};
-  const fields=[ff.dob,ff.occupation,ff.currentHealthInsurance,ff.beneficiary,ff.income,ff.medicareNumber,ff.preferredContactTime,ff.medications];
+  const dobField = clientDob || ff.dob || "";
+  const fields=[dobField,ff.occupation,ff.currentHealthInsurance,ff.beneficiary,ff.income,ff.medicareNumber,ff.preferredContactTime,ff.medications];
   const filled=fields.filter(f=>f&&f.trim()).length;
   return {pct:Math.round((filled/8)*100),filled,total:8};
 };
 
-const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicarePartAEffective:"",medicarePartBEffective:"",medications:"",income:"",beneficiary:"",annualReviewDate:""};
+const emptyFF = {dob:"",occupation:"",preferredContactTime:"",spouseName:"",spouseDob:"",spousePhone:"",children:[],currentHealthInsurance:"",medicareNumber:"",medicarePartAEffective:"",medicarePartBEffective:"",prescriptionDrugPlan:"",medications:"",income:"",beneficiary:"",annualReviewDate:""};
 const emptyClient = {name:"",firstName:"",lastName:"",nickname:"",phone:"",email:"",street:"",city:"",state:"",zip:"",products:[PRODUCTS[0]],product:PRODUCTS[0],policyNumber:"",carrier:"Bankers Life",clientStatus:"prospect",premium:"",stage:"new_lead",dob:"",followUp:"",notes:"",activityLog:[],allPolicies:[],rating:null,factFinder:null,dismissedAlerts:{}};
 const emptyEntry = {type:"call",text:"",followUpUpdate:""};
 
@@ -608,6 +633,7 @@ export default function App() {
   const [editId, setEditId]           = useState(null);
   const [productFilters, setPF]       = useState([]);
   const [ratingFilter, setRF]         = useState("all");
+  const [groupByCity, setGroupByCity] = useState(false);
   const [search, setSearch]           = useState("");
   const [entry, setEntry]             = useState(emptyEntry);
   const [addingEntry, setAddingEntry] = useState(false);
@@ -1066,6 +1092,38 @@ export default function App() {
                     ); })}
                   </div>
                 )}
+
+                {/* Upcoming birthdays (next 30 days) */}
+                {(()=>{
+                  const upcoming = getUpcomingBirthdays(clients, 30);
+                  if(upcoming.length===0) return null;
+                  return (
+                    <div className="card">
+                      <div style={{fontSize:13,fontWeight:700,color:"#0f172a",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+                        🎂 Upcoming Birthdays
+                        <span style={{fontSize:10,color:"#64748b",fontWeight:500}}>· next 30 days</span>
+                      </div>
+                      {upcoming.slice(0,8).map((b,i)=>{
+                        const label = b.diffDays===0?"Today 🎉":b.diffDays===1?"Tomorrow":`${b.diffDays}d`;
+                        const dateStr = b.date.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+                        const client = clients.find(c=>c.id===b.clientId);
+                        return (
+                          <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,padding:"4px 6px",borderRadius:6,cursor:"pointer"}} onClick={()=>client&&openClient(client)} onMouseEnter={e=>e.currentTarget.style.background="#faf5ff"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                            <div style={{width:32,textAlign:"center",fontSize:10,color:"#7c3aed",fontWeight:700}}>{dateStr}</div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,color:"#0f172a",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                                {b.relation==="Client"?b.clientName:`${b.personName} (${b.relation.toLowerCase()} of ${b.clientName})`}
+                              </div>
+                              <div style={{fontSize:10,color:"#a78bfa"}}>Turning {b.turning} · {label}</div>
+                            </div>
+                            <RatingBadge rating={b.rating}/>
+                          </div>
+                        );
+                      })}
+                      {upcoming.length>8&&<div style={{fontSize:11,color:"#64748b",padding:"4px 6px"}}>+{upcoming.length-8} more</div>}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1088,50 +1146,92 @@ export default function App() {
               <span style={{fontSize:11,color:"#64748b",fontWeight:600}}>RATING:</span>
               {["all","A","B","C","unrated"].map(r=>(<button key={r} className={`pfb ${ratingFilter===r?"on":""}`} onClick={()=>setRF(r)} style={r!=="all"&&r!=="unrated"?{borderColor:ratingFilter===r?RATINGS[r]?.color+"88":"",color:ratingFilter===r?RATINGS[r]?.color:""}:{}}>{r==="all"?"All":r==="unrated"?"Unrated":`${r}`}</button>))}
               {(productFilters.length>0||ratingFilter!=="all"||search)&&(<button className="bg sm" onClick={()=>{ setPF([]); setRF("all"); setSearch(""); }}>✕ Clear</button>)}
+              <div style={{width:1,height:16,background:"#d1d9e6",margin:"0 2px"}}/>
+              <button className={`pfb ${groupByCity?"on":""}`} onClick={()=>setGroupByCity(v=>!v)} title="Group clients by city">📍 Group by City</button>
             </div>
-            <div className="card" style={{padding:0,overflow:"hidden"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
-                <thead><tr style={{background:"#f8fafc"}}>
-                  {["Client","Phone","Products","Status","Rating","Fact Finder"].map(h=>(
-                    <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody>
-                  {filteredClients.map(c=>{
-                    const {pct}=ffComplete(c.factFinder);
-                    const cAlerts=getClientAlerts(c);
-                    const allProds=[...new Set((c.allPolicies||[]).map(p=>p.product).concat([c.product]))];
-                    return (
-                      <tr key={c.id} onClick={()=>openClient(c)} style={{borderTop:"1px solid #e2e8f0",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                        <td style={{padding:"10px 14px"}}>
-                          <div style={{fontWeight:600,fontSize:13,color:"#0f172a",display:"flex",alignItems:"center",gap:6}}>
-                            {c.name}
-                            {cAlerts.length>0&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa44",color:"#a78bfa",borderRadius:20,padding:"1px 6px",fontSize:9,fontWeight:700}}>{cAlerts.length}</span>}
-                          </div>
-                          <div style={{fontSize:10,color:"#64748b",fontFamily:"'DM Mono',monospace"}}>{c.policyNumber}</div>
-                        </td>
-                        <td style={{padding:"10px 14px",fontSize:12,color:"#64748b"}}>{c.phone||"—"}</td>
-                        <td style={{padding:"10px 14px"}}>
-                          <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
-                            {allProds.slice(0,2).map((p,i)=><span key={i} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"1px 6px",fontSize:10}}>{p}</span>)}
-                            {allProds.length>2&&<span style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"1px 6px",fontSize:10}}>+{allProds.length-2}</span>}
-                          </div>
-                        </td>
-                        <td style={{padding:"10px 14px"}}>{c.rating?<RatingBadge rating={c.rating}/>:<span style={{fontSize:11,color:"#64748b"}}>—</span>}</td>
-                        <td style={{padding:"10px 14px"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:5}}>
-                            <div style={{width:36,height:4,background:"#f1f5f9",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:pct===100?"#34d399":pct>50?"#60a5fa":"#64748b",borderRadius:2}}/></div>
-                            <span style={{fontSize:10,color:pct===100?"#34d399":pct>0?"#64748b":"#64748b"}}>{pct}%</span>
-                          </div>
-                        </td>
-                        <td style={{padding:"10px 14px"}}><span className="tag" style={stageStyle(c.stage)}>{STAGE_MAP[c.stage]?.label}</span></td>
-                      </tr>
-                    );
-                  })}
-                  {filteredClients.length===0&&<tr><td colSpan={7} style={{padding:36,textAlign:"center",color:"#64748b"}}>No clients match filters</td></tr>}
-                </tbody>
-              </table>
-            </div>
+            {(()=>{
+              const renderRow = c => {
+                const {pct}=ffComplete(c.factFinder,c.dob);
+                const cAlerts=getClientAlerts(c);
+                const allProds=[...new Set((c.allPolicies||[]).map(p=>p.product).concat([c.product]))];
+                return (
+                  <tr key={c.id} onClick={()=>openClient(c)} style={{borderTop:"1px solid #e2e8f0",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <td style={{padding:"10px 14px"}}>
+                      <div style={{fontWeight:600,fontSize:13,color:"#0f172a",display:"flex",alignItems:"center",gap:6}}>
+                        {c.name}
+                        {cAlerts.length>0&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa44",color:"#a78bfa",borderRadius:20,padding:"1px 6px",fontSize:9,fontWeight:700}}>{cAlerts.length}</span>}
+                      </div>
+                      <div style={{fontSize:10,color:"#64748b",fontFamily:"'DM Mono',monospace"}}>{c.policyNumber}</div>
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:12,color:"#64748b"}}>{c.phone||"—"}</td>
+                    <td style={{padding:"10px 14px"}}>
+                      <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                        {allProds.slice(0,2).map((p,i)=><span key={i} style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"1px 6px",fontSize:10}}>{p}</span>)}
+                        {allProds.length>2&&<span style={{background:"#f1f5f9",color:"#64748b",borderRadius:4,padding:"1px 6px",fontSize:10}}>+{allProds.length-2}</span>}
+                      </div>
+                    </td>
+                    <td style={{padding:"10px 14px"}}>{c.rating?<RatingBadge rating={c.rating}/>:<span style={{fontSize:11,color:"#64748b"}}>—</span>}</td>
+                    <td style={{padding:"10px 14px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:5}}>
+                        <div style={{width:36,height:4,background:"#f1f5f9",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:pct===100?"#34d399":pct>50?"#60a5fa":"#64748b",borderRadius:2}}/></div>
+                        <span style={{fontSize:10,color:pct===100?"#34d399":pct>0?"#64748b":"#64748b"}}>{pct}%</span>
+                      </div>
+                    </td>
+                    <td style={{padding:"10px 14px"}}><span className="tag" style={stageStyle(c.stage)}>{STAGE_MAP[c.stage]?.label}</span></td>
+                  </tr>
+                );
+              };
+
+              // Build city groups if toggle is on. Group key = "City, ST" (case-insensitive),
+              // unknowns go into a "No Address" bucket. Groups are sorted by client count desc,
+              // then city name asc, so the most populous neighborhoods surface first.
+              const cityGroups = (()=>{
+                if(!groupByCity) return null;
+                const groups = {};
+                filteredClients.forEach(c=>{
+                  const city = (c.city||"").trim();
+                  const state = (c.state||"").trim().toUpperCase();
+                  const key = city ? (state?`${city}, ${state}`:city) : "No Address";
+                  (groups[key] = groups[key] || []).push(c);
+                });
+                return Object.entries(groups).sort((a,b)=>{
+                  if(a[0]==="No Address") return 1;
+                  if(b[0]==="No Address") return -1;
+                  if(b[1].length!==a[1].length) return b[1].length-a[1].length;
+                  return a[0].localeCompare(b[0]);
+                });
+              })();
+
+              return (
+                <div className="card" style={{padding:0,overflow:"hidden"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead><tr style={{background:"#f8fafc"}}>
+                      {["Client","Phone","Products","Rating","Fact Finder","Status"].map(h=>(
+                        <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {groupByCity ? (
+                        cityGroups.length===0
+                          ? <tr><td colSpan={6} style={{padding:36,textAlign:"center",color:"#64748b"}}>No clients match filters</td></tr>
+                          : cityGroups.flatMap(([city,list])=>[
+                              <tr key={`hdr-${city}`} style={{background:"#eef2f7"}}>
+                                <td colSpan={6} style={{padding:"8px 14px",fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:".05em"}}>
+                                  📍 {city} <span style={{color:"#94a3b8",fontWeight:500,marginLeft:6}}>· {list.length} client{list.length===1?"":"s"}</span>
+                                </td>
+                              </tr>,
+                              ...list.map(renderRow),
+                            ])
+                      ) : (
+                        filteredClients.length===0
+                          ? <tr><td colSpan={6} style={{padding:36,textAlign:"center",color:"#64748b"}}>No clients match filters</td></tr>
+                          : filteredClients.map(renderRow)
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1199,7 +1299,8 @@ export default function App() {
               clients.forEach(c=>{
                 const ff=c.factFinder; if(!ff) return;
                 const people=[];
-                if(ff.dob) people.push({name:c.name,dob:ff.dob,relation:"Client"});
+                const cDob=c.dob||ff.dob;
+                if(cDob) people.push({name:c.name,dob:cDob,relation:"Client"});
                 if(ff.spouseDob) people.push({name:ff.spouseName||"Spouse",dob:ff.spouseDob,relation:"Spouse"});
                 (ff.children||[]).forEach(ch=>{ if(ch.dob) people.push({name:ch.name||"Child",dob:ch.dob,relation:"Child"}); });
                 people.forEach(person=>{ MILESTONES.forEach(m=>{ const mDate=getMilestoneDate(person.dob,m.age); if(!mDate||mDate.getFullYear()!==year||mDate.getMonth()!==month) return; const day=mDate.getDate(); if(!monthEvents[day]) monthEvents[day]=[]; const dismissed=(c.dismissedAlerts||{})[`${c.id}_${person.name}_${m.label}`]; monthEvents[day].push({clientId:c.id,clientName:c.name,personName:person.name,relation:person.relation,milestone:m,rating:c.rating,dismissed}); }); });
@@ -1448,7 +1549,7 @@ export default function App() {
                   {[
                     {label:"Book of Business",value:clientBook.length,sub:"Delivered clients"},
                     
-                    {label:"Fact Finders",value:`${clients.filter(c=>ffComplete(c.factFinder).pct===100).length}/${clientBook.length}`,sub:"Complete profiles"},
+                    {label:"Fact Finders",value:`${clients.filter(c=>ffComplete(c.factFinder,c.dob).pct===100).length}/${clientBook.length}`,sub:"Complete profiles"},
                     {label:"Active Alerts",value:allAlerts.length,sub:"Milestone contacts needed"},
                   ].map(m=>(<div key={m.label} style={{background:"#f8fafc",borderRadius:9,padding:14,textAlign:"center"}}><div style={{fontSize:24,fontWeight:700,color:"#60a5fa",fontFamily:"'DM Mono',monospace"}}>{m.value}</div><div style={{fontSize:12,fontWeight:600,color:"#64748b",margin:"3px 0 2px"}}>{m.label}</div><div style={{fontSize:10,color:"#64748b"}}>{m.sub}</div></div>))}
                 </div>
@@ -1610,7 +1711,7 @@ export default function App() {
                 ); })()}
 
                 {/* Fact Finder progress */}
-                {(()=>{ const {pct,filled,total}=ffComplete(ff); return (
+                {(()=>{ const {pct,filled,total}=ffComplete(ff,sel.dob); return (
                   <div style={{background:"#f8fafc",borderRadius:8,padding:"9px 12px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
                     <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,fontWeight:600,color:"#64748b"}}>Fact Finder</span><span style={{fontSize:11,fontWeight:700,color:pct===100?"#34d399":"#60a5fa"}}>{filled}/{total} · {pct}%</span></div><div className="pbb" style={{height:5}}><div className="pb" style={{width:`${pct}%`,background:pct===100?"#34d399":"#3b82f6"}}/></div></div>
                   </div>
@@ -1619,16 +1720,17 @@ export default function App() {
                 {/* Personal */}
                 <div style={{marginBottom:14}}>
                   <SHdr icon="" title="Personal"/>
+                  <div style={{fontSize:10,color:"#64748b",marginBottom:6,fontStyle:"italic"}}>Date of Birth is set from the policy form above — edit there to change it.</div>
                   <div className="ff-grid">
-                    <FFField label="Date of Birth" value={ff.dob} onChange={v=>updFF("dob",v)} type="date"/>
                     <FFField label="Occupation" value={ff.occupation} onChange={v=>updFF("occupation",v)} placeholder="Occupation / retired"/>
                     <FFField label="Preferred Contact Time" value={ff.preferredContactTime} onChange={v=>updFF("preferredContactTime",v)} placeholder="e.g. Mornings"/>
                     <FFField label="Beneficiary" value={ff.beneficiary} onChange={v=>updFF("beneficiary",v)} placeholder="Name & relationship"/>
                     <FFField label="Annual Review Date" value={ff.annualReviewDate||defaultAnnualReviewDate()} onChange={v=>updFF("annualReviewDate",v)} type="date"/>
                   </div>
-                  {ff.dob&&(()=>{
-                    const age=calcAge(ff.dob);
-                    const mDates=MILESTONES.map(m=>({...m,date:getMilestoneDate(ff.dob,m.age)})).filter(m=>m.date);
+                  {(sel.dob||ff.dob)&&(()=>{
+                    const clientDob = sel.dob || ff.dob;
+                    const age=calcAge(clientDob);
+                    const mDates=MILESTONES.map(m=>({...m,date:getMilestoneDate(clientDob,m.age)})).filter(m=>m.date);
                     return (
                       <div style={{marginTop:10}}>
                         <div style={{fontSize:10,color:"#64748b",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>Milestones {age!==null&&<span style={{color:"#64748b",fontWeight:400}}>· Age {age}</span>}</div>
@@ -1684,6 +1786,7 @@ export default function App() {
                     <div/>
                     <FFField label="Part A Effective Date" value={ff.medicarePartAEffective} onChange={v=>updFF("medicarePartAEffective",v)} type="date"/>
                     <FFField label="Part B Effective Date" value={ff.medicarePartBEffective} onChange={v=>updFF("medicarePartBEffective",v)} type="date"/>
+                    <div style={{gridColumn:"1/-1"}}><FFField label="Prescription Drug Plan (PDP)" value={ff.prescriptionDrugPlan} onChange={v=>updFF("prescriptionDrugPlan",v)} placeholder="Carrier, plan name & monthly premium"/></div>
                     <div style={{gridColumn:"1/-1"}}><FFArea label="Medications" value={ff.medications} onChange={v=>updFF("medications",v)} placeholder="Current medications..." rows={2}/></div>
                   </div>
                 </div>
