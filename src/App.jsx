@@ -167,8 +167,13 @@ function dbToClient(row) {
     city: row.city||"",
     state: row.state||"",
     zip: row.zip||"",
-    product: row.product||"",
-    products: row.products||[row.product||""],
+    // Always re-derive from the raw `product` field (source of truth).
+    // Splits slash-combos ("MAPD/TRADITIONAL LIFE") and normalizes to PRODUCTS entries.
+    // Clears any junk accumulated from the old toggle bug in the stored products array.
+    products: parseProducts(row.product||"").length
+      ? parseProducts(row.product||"")
+      : (row.products||[]).map(normalizeProduct).filter(Boolean),
+    product: parseProducts(row.product||"")[0] || normalizeProduct(row.product||"") || "",
     clientStatus: row.client_status||"prospect",
     policyNumber: row.policy_number||"",
     carrier: row.carrier||"Bankers Life",
@@ -303,7 +308,49 @@ const STAGE_MESSAGES = {
     }],
   },
 };
-const PRODUCTS = ["Medicare Supplement","Medicare Advantage","Life Insurance","Annuity","Long-Term Care","Other"];
+const PRODUCTS = [
+  "Medicare Supplement",
+  "MAPD",
+  "Universal Life",
+  "Traditional Life",
+  "Term Life",
+  "Long-Term Care",
+  "Annuity",
+  "Other",
+];
+
+// Map raw imported product strings → canonical PRODUCTS entries (case-insensitive key)
+const PRODUCT_NORMALIZE_MAP = {
+  "mapd":                       "MAPD",
+  "medicare advantage":         "MAPD",
+  "ma-mapd":                    "MAPD",
+  "medicare supplement":        "Medicare Supplement",
+  "medicare supplement (ltc)":  "Medicare Supplement",
+  "universal life":             "Universal Life",
+  "traditional life":           "Traditional Life",
+  "term life":                  "Term Life",
+  "long term care":             "Long-Term Care",
+  "long-term care":             "Long-Term Care",
+  "long term care (medicare)":  "Long-Term Care",
+  "flexible premium annuity":   "Annuity",
+  "single premium annuity":     "Annuity",
+  "annuity":                    "Annuity",
+  "life insurance":             "Other",
+};
+
+function normalizeProduct(raw) {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return PRODUCT_NORMALIZE_MAP[trimmed.toLowerCase()] || trimmed;
+}
+
+// Split slash-combo imports ("MAPD/TRADITIONAL LIFE") into individual normalized products
+function parseProducts(raw) {
+  if (!raw) return [];
+  return [...new Set(
+    raw.split("/").map(p => normalizeProduct(p.trim())).filter(Boolean)
+  )];
+}
 const CARRIERS = ["Bankers Life","Devoted","Humana","Aetna","Wellcare","Healthspring","United Healthcare","Blue Cross Blue Shield","Other"];
 const CLIENT_STATUS = [
   { id:"prospect",  label:"Prospect" },
@@ -1153,7 +1200,7 @@ export default function App() {
               const renderRow = c => {
                 const {pct}=ffComplete(c.factFinder,c.dob);
                 const cAlerts=getClientAlerts(c);
-                const allProds=[...new Set((c.allPolicies||[]).map(p=>p.product).concat([c.product]))];
+                const allProds=[...new Set((c.allPolicies||[]).map(p=>p.product).concat(c.products||[c.product]))];
                 return (
                   <tr key={c.id} onClick={()=>openClient(c)} style={{borderTop:"1px solid #e2e8f0",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                     <td style={{padding:"10px 14px"}}>
@@ -2056,7 +2103,8 @@ export default function App() {
                   <label>Products (select all that apply)</label>
                   <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:5}}>
                     {PRODUCTS.map(p=>{
-                      const selected=(form.products||[form.product]).includes(p);
+                      const currentProds=form.products||[form.product];
+                      const selected=currentProds.includes(p);
                       return <button key={p} type="button" onClick={()=>setForm(prev=>{
                         const prods=prev.products||[prev.product];
                         const next=selected?prods.filter(x=>x!==p):[...prods,p];
@@ -2064,6 +2112,21 @@ export default function App() {
                       })} style={{padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${selected?"#1d4ed8":"#e2e8f0"}`,background:selected?"#eff6ff":"#fff",color:selected?"#1d4ed8":"#64748b",transition:"all .15s"}}>{p}</button>;
                     })}
                   </div>
+                  {/* Show any non-standard product values as removable chips so nothing is silently lost */}
+                  {(form.products||[form.product]).filter(p=>p&&!PRODUCTS.includes(p)).length>0&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+                      <span style={{fontSize:10,color:"#94a3b8",alignSelf:"center"}}>Unknown:</span>
+                      {(form.products||[form.product]).filter(p=>p&&!PRODUCTS.includes(p)).map(p=>(
+                        <span key={p} style={{display:"flex",alignItems:"center",gap:4,background:"#fef3c722",border:"1px solid #fde68a",borderRadius:20,padding:"3px 10px",fontSize:11,color:"#92400e"}}>
+                          {p}
+                          <button type="button" onClick={()=>setForm(prev=>{
+                            const next=(prev.products||[prev.product]).filter(x=>x!==p);
+                            return {...prev,products:next.length?next:["Other"],product:next[0]||"Other"};
+                          })} style={{background:"none",border:"none",cursor:"pointer",color:"#92400e",fontSize:13,lineHeight:1,padding:0}}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div><label>Current Status</label><select className="inp" value={form.clientStatus||"prospect"} onChange={e=>setForm(p=>({...p,clientStatus:e.target.value}))}>{CLIENT_STATUS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
                 <div><label>Carrier</label><select className="inp" value={form.carrier} onChange={e=>setForm(p=>({...p,carrier:e.target.value}))}>{CARRIERS.map(c=><option key={c}>{c}</option>)}</select></div>
